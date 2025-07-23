@@ -8,3 +8,7 @@ wheels/
 
 # Virtual environments
 .venv
+
+
+universities_data_*.json
+data.json
