@@ -314,7 +314,8 @@ class YokatlasUniversityScraper:
             total_quota_html = cells[8].get_attribute('innerHTML')
             total_quota = self.extract_colored_values(total_quota_html)
             # Extract quota status
-            quota_status = cells[9].text.strip()
+            # I would expect cells[9].text.strip() to work, but it doesn't.
+            quota_status = str(cells[9].get_attribute('innerHTML')).strip()
             # Extract filled quota (colored values)
             filled_quota_html = cells[10].get_attribute('innerHTML')
             filled_quota = self.extract_colored_values(filled_quota_html)
