@@ -66,12 +66,33 @@ class YokatlasUniversityScraper:
         chrome_options.add_argument("--disable-gpu")
         chrome_options.add_argument("--window-size=1920x1080")
 
+        # Additional options for better headless stability
+        chrome_options.add_argument("--disable-extensions")
+        chrome_options.add_argument("--disable-plugins")
+        chrome_options.add_argument("--disable-images")  # Speed up by not loading images
+        chrome_options.add_argument("--disable-javascript-harmony-shipping")
+        chrome_options.add_argument("--disable-background-timer-throttling")
+        chrome_options.add_argument("--disable-backgrounding-occluded-windows")
+        chrome_options.add_argument("--disable-renderer-backgrounding")
+        chrome_options.add_argument("--disable-features=TranslateUI")
+        chrome_options.add_argument("--disable-component-extensions-with-background-pages")
+        chrome_options.add_argument("--disable-default-apps")
+        chrome_options.add_argument("--remote-debugging-port=9222")
+
+        # User agent to avoid detection
+        chrome_options.add_argument("--user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+
         if self.headless:
-            chrome_options.add_argument("--headless")
+            chrome_options.add_argument("--headless=new")  # Use new headless mode
+            print("Running in headless mode with enhanced stability options")
 
         service = Service(ChromeDriverManager().install())
         self.driver = webdriver.Chrome(service=service, options=chrome_options)
         self.driver.implicitly_wait(10)
+
+        # Set additional timeouts for better stability
+        self.driver.set_page_load_timeout(30)
+        self.driver.set_script_timeout(30)
 
     def set_page_length_to_100(self):
         """Set the page length dropdown to 100 items"""
@@ -95,21 +116,111 @@ class YokatlasUniversityScraper:
             return False
 
     def click_detailed_view(self):
-        """Click the 'Detaylı Görünüm' (Detailed View) button"""
+        """Click the 'Detaylı Görünüm' (Detailed View) button with robust fallback strategies"""
         try:
-            toggle_view_button = WebDriverWait(self.driver, 10).until(
-                EC.element_to_be_clickable((By.ID, "toggle_view"))
+            # First, wait for the page to be fully loaded
+            WebDriverWait(self.driver, 15).until(
+                EC.presence_of_element_located((By.ID, "mydata"))
             )
-            toggle_view_button.click()
-            print("Clicked 'Detaylı Görünüm' (Detailed View) button")
 
-            # Wait for view to change
-            time.sleep(3)
-            return True
+            # Additional wait for JavaScript to complete
+            time.sleep(2)
 
-        except TimeoutException:
-            print("Warning: Could not find or click 'Detaylı Görünüm' button")
-            return False
+            # Strategy 1: Try to find and click normally
+            try:
+                toggle_view_button = WebDriverWait(self.driver, 10).until(
+                    EC.element_to_be_clickable((By.ID, "toggle_view"))
+                )
+
+                # Scroll to element to ensure it's visible
+                self.driver.execute_script("arguments[0].scrollIntoView(true);", toggle_view_button)
+                time.sleep(1)
+
+                toggle_view_button.click()
+                print("Clicked 'Detaylı Görünüm' button using normal click")
+
+                # Wait for view to change
+                time.sleep(3)
+                return True
+
+            except (TimeoutException, Exception) as e:
+                print(f"Normal click failed")
+
+                # Strategy 2: Try JavaScript click
+                try:
+                    button = self.driver.find_element(By.ID, "toggle_view")
+                    self.driver.execute_script("arguments[0].click();", button)
+                    print("Clicked 'Detaylı Görünüm' button using JavaScript")
+
+                    # Wait for view to change
+                    time.sleep(3)
+                    return True
+
+                except Exception as e:
+                    print(f"JavaScript click failed: {e}")
+
+                    # Strategy 3: Try alternative selectors
+                    selectors = [
+                        "input[type='button'][value*='Detaylı']",
+                        "button[id='toggle_view']",
+                        "*[onclick*='toggle']",
+                        "input[onclick*='toggle']"
+                    ]
+
+                    for selector in selectors:
+                        try:
+                            element = self.driver.find_element(By.CSS_SELECTOR, selector)
+                            self.driver.execute_script("arguments[0].click();", element)
+                            print(f"Clicked button using selector: {selector}")
+                            time.sleep(3)
+                            return True
+                        except:
+                            continue
+
+                    # Strategy 4: Check if we're already in detailed view
+                    try:
+                        # Look for indicators that we're in detailed view
+                        table = self.driver.find_element(By.ID, "mydata")
+                        rows = table.find_elements(By.TAG_NAME, "tr")
+                        if len(rows) > 0:
+                            first_row_cells = rows[1].find_elements(By.TAG_NAME, "td") if len(rows) > 1 else []
+                            # If we have more than 10 columns, we're likely in detailed view
+                            if len(first_row_cells) > 10:
+                                print("Already in detailed view, continuing...")
+                                return True
+                    except:
+                        pass
+
+        except Exception as e:
+            print(f"Error in click_detailed_view: {e}")
+
+        # If all strategies failed, print debug info
+        try:
+            # Debug: Check if element exists at all
+            elements = self.driver.find_elements(By.ID, "toggle_view")
+            if elements:
+                element = elements[0]
+                print(f"Debug: Button found but not clickable. Displayed: {element.is_displayed()}, Enabled: {element.is_enabled()}")
+                print(f"Debug: Button text: {element.get_attribute('value')}")
+                print(f"Debug: Button location: {element.location}")
+            else:
+                print("Debug: Button with ID 'toggle_view' not found")
+
+                # Look for any buttons with similar text
+                buttons = self.driver.find_elements(By.XPATH, "//input[@type='button'] | //button")
+                print(f"Debug: Found {len(buttons)} buttons on page")
+                for i, btn in enumerate(buttons[:5]):  # Show first 5 buttons
+                    try:
+                        value = btn.get_attribute('value') or btn.text
+                        print(f"Debug: Button {i}: '{value}' (id: {btn.get_attribute('id')})")
+                    except:
+                        pass
+
+        except Exception as debug_error:
+            print(f"Debug error: {debug_error}")
+
+        print("Warning: Could not find or click 'Detaylı Görünüm' button with any strategy")
+        return False
 
     def extract_colored_values(self, cell_html: str) -> List[str]:
         """Extract values from colored font tags (red, purple, blue, green)"""
@@ -299,13 +410,41 @@ class YokatlasUniversityScraper:
             print(f"URL: {self.base_url}")
             self.driver.get(self.base_url)
 
+            # Wait for the page to fully load
+            WebDriverWait(self.driver, 20).until(
+                EC.presence_of_element_located((By.ID, "mydata"))
+            )
+            print("Page loaded successfully")
+
+            # Additional wait for JavaScript to complete
+            time.sleep(3)
+
             # Set page length to 100
             if not self.set_page_length_to_100():
                 print("Warning: Could not set page length to 100")
+            else:
+                # Wait for the table to refresh after changing page length
+                time.sleep(5)
 
             # Click detailed view button
-            if not self.click_detailed_view():
-                print("Warning: Could not click detailed view button")
+            detailed_view_success = self.click_detailed_view()
+            if not detailed_view_success:
+                print("Warning: Could not click detailed view button, continuing with current view")
+                # Check if we can still scrape data
+                try:
+                    test_scrape = self.scrape_current_page()
+                    if test_scrape == 0:
+                        print("Error: Cannot scrape data in current view. Stopping.")
+                        return
+                    else:
+                        print(f"Successfully scraped {test_scrape} records without detailed view")
+                        # Reset data since we used test scrape
+                        if test_scrape > 0:
+                            self.data = self.data[:-test_scrape]
+                            self.scraped_codes = {item['code'] for item in self.data}
+                except Exception as e:
+                    print(f"Error: Cannot scrape data - {e}")
+                    return
 
             page_num = 1
             total_new_records = 0
