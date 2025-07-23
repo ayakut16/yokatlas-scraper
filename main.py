@@ -94,6 +94,23 @@ class YokatlasUniversityScraper:
             print("Could not find page length dropdown")
             return False
 
+    def click_detailed_view(self):
+        """Click the 'Detaylı Görünüm' (Detailed View) button"""
+        try:
+            toggle_view_button = WebDriverWait(self.driver, 10).until(
+                EC.element_to_be_clickable((By.ID, "toggle_view"))
+            )
+            toggle_view_button.click()
+            print("Clicked 'Detaylı Görünüm' (Detailed View) button")
+
+            # Wait for view to change
+            time.sleep(3)
+            return True
+
+        except TimeoutException:
+            print("Warning: Could not find or click 'Detaylı Görünüm' button")
+            return False
+
     def extract_colored_values(self, cell_html: str) -> List[str]:
         """Extract values from colored font tags (red, purple, blue, green)"""
         soup = BeautifulSoup(cell_html, 'html.parser')
@@ -166,7 +183,6 @@ class YokatlasUniversityScraper:
             if not code_link:
                 return None
             code = code_link.get_text(strip=True)
-
             # Skip if already scraped
             if code in self.scraped_codes:
                 return None
@@ -174,37 +190,29 @@ class YokatlasUniversityScraper:
             # Extract university name
             university_cell = cells[2].get_attribute('innerHTML')
             university_name = self.extract_university_and_faculty(university_cell)
-
             # Extract program name and attributes
             program_cell = cells[3].get_attribute('innerHTML')
             program_name = self.extract_program_name(program_cell)
             attributes = self.parse_attributes(program_cell)
-
             # Extract basic text fields
-            city = cells[4].get_text(strip=True)
-            university_type = cells[5].get_text(strip=True)
-            scholarship_type = cells[6].get_text(strip=True)
-            education_type = cells[7].get_text(strip=True)
-
+            city = cells[4].text.strip()
+            university_type = cells[5].text.strip()
+            scholarship_type = cells[6].text.strip()
+            education_type = cells[7].text.strip()
             # Extract quota data (colored values)
             total_quota_html = cells[8].get_attribute('innerHTML')
             total_quota = self.extract_colored_values(total_quota_html)
-
             # Extract quota status
-            quota_status = cells[9].get_text(strip=True)
-
+            quota_status = cells[9].text.strip()
             # Extract filled quota (colored values)
             filled_quota_html = cells[10].get_attribute('innerHTML')
             filled_quota = self.extract_colored_values(filled_quota_html)
-
             # Extract max rank (colored values)
             max_rank_html = cells[11].get_attribute('innerHTML')
             max_rank = self.extract_colored_values(max_rank_html)
-
             # Extract min score (colored values)
             min_score_html = cells[12].get_attribute('innerHTML')
             min_score = self.extract_colored_values(min_score_html)
-
             # Create the data structure
             university_data = {
                 "code": code,
@@ -250,7 +258,6 @@ class YokatlasUniversityScraper:
                         self.data.append(university_data)
                         self.scraped_codes.add(university_data['code'])
                         new_records += 1
-                        print(f"Scraped: {university_data['code']} - {university_data['name']}")
                 except Exception as e:
                     print(f"Error processing row: {e}")
                     continue
@@ -264,7 +271,7 @@ class YokatlasUniversityScraper:
     def has_next_page(self) -> bool:
         """Check if there's a next page button available"""
         try:
-            next_button = self.driver.find_element(By.CSS_SELECTOR, "a.paginate_button.next:not(.disabled)")
+            next_button = self.driver.find_element(By.CSS_SELECTOR, "li.paginate_button.next:not(.disabled) a")
             return True
         except NoSuchElementException:
             return False
@@ -273,7 +280,7 @@ class YokatlasUniversityScraper:
         """Navigate to next page"""
         try:
             next_button = WebDriverWait(self.driver, 10).until(
-                EC.element_to_be_clickable((By.CSS_SELECTOR, "a.paginate_button.next:not(.disabled)"))
+                EC.element_to_be_clickable((By.CSS_SELECTOR, "li.paginate_button.next:not(.disabled) a"))
             )
             next_button.click()
 
@@ -295,6 +302,10 @@ class YokatlasUniversityScraper:
             # Set page length to 100
             if not self.set_page_length_to_100():
                 print("Warning: Could not set page length to 100")
+
+            # Click detailed view button
+            if not self.click_detailed_view():
+                print("Warning: Could not click detailed view button")
 
             page_num = 1
             total_new_records = 0
