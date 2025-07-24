@@ -19,7 +19,13 @@ class YokatlasUniversityScraper:
     def __init__(self, score_type: str = "say", output_file: Optional[str] = None, headless: bool = False):
         self.score_type = score_type
         self.output_file = output_file or f"universities_data_{score_type}.json"
-        self.base_url = f"https://yokatlas.yok.gov.tr/tercih-sihirbazi-t4-tablo.php?p={score_type if score_type != 'soz' else 'söz'}"
+
+        # Handle different URL structure for TYT
+        if score_type == "tyt":
+            self.base_url = "https://yokatlas.yok.gov.tr/tercih-sihirbazi-t3-tablo.php"
+        else:
+            self.base_url = f"https://yokatlas.yok.gov.tr/tercih-sihirbazi-t4-tablo.php?p={score_type if score_type != 'soz' else 'söz'}"
+
         self.headless = headless
         self.driver = None
         self.scraped_codes = set()
@@ -30,7 +36,8 @@ class YokatlasUniversityScraper:
             "say": "sayısal",
             "ea": "eşit ağırlık",
             "soz": "sözel",
-            "dil": "dil"
+            "dil": "dil",
+            "tyt": "TYT"
         }
 
         # Load existing data if file exists
@@ -227,19 +234,34 @@ class YokatlasUniversityScraper:
         soup = BeautifulSoup(cell_html, 'html.parser')
         values = []
 
-        # Look for font tags with color attributes in order: red, purple, blue, green
-        colors = ['red', 'purple', 'blue', 'green']
-        for color in colors:
-            font_tag = soup.find('font', {'color': color})
-            if font_tag:
-                # Clean up the text to remove extra formatting
-                text = font_tag.get_text(strip=True)
-                # Remove parentheses content for filled quota (like "8(6+0+1+0+1)" -> "8")
-                if '(' in text and ')' in text:
-                    text = text.split('(')[0]
-                values.append(text)
-            else:
-                values.append("")
+        if self.score_type == "tyt":
+            # For TYT, only extract red and blue values
+            colors = ['red', 'blue']
+            for color in colors:
+                font_tag = soup.find('font', {'color': color})
+                if font_tag:
+                    # Clean up the text to remove extra formatting
+                    text = font_tag.get_text(strip=True)
+                    # Remove parentheses content for filled quota (like "8(6+0+1+0+1)" -> "8")
+                    if '(' in text and ')' in text:
+                        text = text.split('(')[0]
+                    values.append(text)
+                else:
+                    values.append("")
+        else:
+            # Look for font tags with color attributes in order: red, purple, blue, green
+            colors = ['red', 'purple', 'blue', 'green']
+            for color in colors:
+                font_tag = soup.find('font', {'color': color})
+                if font_tag:
+                    # Clean up the text to remove extra formatting
+                    text = font_tag.get_text(strip=True)
+                    # Remove parentheses content for filled quota (like "8(6+0+1+0+1)" -> "8")
+                    if '(' in text and ')' in text:
+                        text = text.split('(')[0]
+                    values.append(text)
+                else:
+                    values.append("")
 
         return values
 
@@ -248,16 +270,27 @@ class YokatlasUniversityScraper:
         soup = BeautifulSoup(program_cell, 'html.parser')
         attributes = []
 
-        # Find the font tag with color="#CC0000" that contains attributes
-        font_tag = soup.find('font', {'color': '#CC0000'})
-        if font_tag:
-            text = font_tag.get_text(strip=True)
-            # Remove parentheses and split by ) (
-            if text.startswith('(') and text.endswith(')'):
-                text = text[1:-1]  # Remove outer parentheses
-                # Split by ) ( pattern
-                parts = re.split(r'\)\s*\(', text)
-                attributes = [part.strip() for part in parts if part.strip()]
+        if self.score_type == "tyt":
+            # For TYT, look for attributes in font tags with color="#cc0000" (lowercase)
+            font_tags = soup.find_all('font', {'color': '#cc0000'})
+            for font_tag in font_tags:
+                text = font_tag.get_text(strip=True)
+                if text.startswith('(') and text.endswith(')'):
+                    # Remove parentheses and add to attributes
+                    attribute = text[1:-1].strip()
+                    if attribute:
+                        attributes.append(attribute)
+        else:
+            # Find the font tag with color="#CC0000" that contains attributes
+            font_tag = soup.find('font', {'color': '#CC0000'})
+            if font_tag:
+                text = font_tag.get_text(strip=True)
+                # Remove parentheses and split by ) (
+                if text.startswith('(') and text.endswith(')'):
+                    text = text[1:-1]  # Remove outer parentheses
+                    # Split by ) ( pattern
+                    parts = re.split(r'\)\s*\(', text)
+                    attributes = [part.strip() for part in parts if part.strip()]
 
         return attributes
 
@@ -275,16 +308,24 @@ class YokatlasUniversityScraper:
         # Find the strong tag with the program name
         strong_tag = soup.find('strong')
         if strong_tag:
-            link = strong_tag.find('a')
-            if link:
-                return link.get_text(strip=True)
+            if self.score_type == "tyt":
+                # For TYT, the program name is directly in the strong tag without an <a> tag
+                return strong_tag.get_text(strip=True)
+            else:
+                # For other score types, look for <a> tag inside <strong>
+                link = strong_tag.find('a')
+                if link:
+                    return link.get_text(strip=True)
         return ""
 
     def parse_row(self, row) -> Optional[Dict[str, Any]]:
         """Parse a single table row into university data"""
         try:
             cells = row.find_elements(By.TAG_NAME, "td")
-            if len(cells) < 12:  # Skip if not enough columns
+
+            # Check minimum column count based on score type
+            min_columns = 11 if self.score_type == "tyt" else 12
+            if len(cells) < min_columns:  # Skip if not enough columns
                 return None
 
             # Extract code from first column link (accounting for hidden control column)
@@ -324,30 +365,51 @@ class YokatlasUniversityScraper:
             # Extract university name
             university_cell = cells[2].get_attribute('innerHTML')
             university_name = self.extract_university_and_faculty(university_cell)
+
             # Extract program name and attributes
             program_cell = cells[3].get_attribute('innerHTML')
             program_name = self.extract_program_name(program_cell)
             attributes = self.parse_attributes(program_cell)
+
             # Extract basic text fields
             city = cells[4].text.strip()
             university_type = cells[5].text.strip()
             scholarship_type = cells[6].text.strip()
-            education_type = cells[7].text.strip()
+            education_type = str(cells[7].get_attribute('innerHTML')).strip()
+
             # Extract quota data (colored values)
             total_quota_html = cells[8].get_attribute('innerHTML')
             total_quota = self.extract_colored_values(total_quota_html)
-            # Extract quota status
-            # I would expect cells[9].text.strip() to work, but it doesn't.
-            quota_status = str(cells[9].get_attribute('innerHTML')).strip()
-            # Extract filled quota (colored values)
-            filled_quota_html = cells[10].get_attribute('innerHTML')
-            filled_quota = self.extract_colored_values(filled_quota_html)
-            # Extract max rank (colored values)
-            max_rank_html = cells[11].get_attribute('innerHTML')
-            max_rank = self.extract_colored_values(max_rank_html)
-            # Extract min score (colored values)
-            min_score_html = cells[12].get_attribute('innerHTML')
-            min_score = self.extract_colored_values(min_score_html)
+
+            if self.score_type == "tyt":
+                quota_status = ""
+                # Extract filled quota (colored values)
+                filled_quota_html = cells[9].get_attribute('innerHTML')
+                filled_quota = self.extract_colored_values(filled_quota_html)
+
+                # Extract min score (colored values)
+                min_score_html = cells[10].get_attribute('innerHTML')
+                min_score = self.extract_colored_values(min_score_html)
+
+                # Extract max rank (colored values)
+                max_rank_html = cells[11].get_attribute('innerHTML')
+                max_rank = self.extract_colored_values(max_rank_html)
+
+            else:
+                quota_status = str(cells[9].get_attribute('innerHTML')).strip()
+
+                # Extract filled quota (colored values)
+                filled_quota_html = cells[10].get_attribute('innerHTML')
+                filled_quota = self.extract_colored_values(filled_quota_html)
+
+                # Extract max rank (colored values)
+                max_rank_html = cells[11].get_attribute('innerHTML')
+                max_rank = self.extract_colored_values(max_rank_html)
+
+                # Extract min score (colored values)
+                min_score_html = cells[12].get_attribute('innerHTML')
+                min_score = self.extract_colored_values(min_score_html)
+
             # Create the data structure
             university_data = {
                 "code": code,
@@ -518,7 +580,7 @@ def main():
     parser = argparse.ArgumentParser(description='Scrape university data from YÖK Atlas')
     parser.add_argument(
         '--score-type',
-        choices=['say', 'ea', 'soz', 'dil'],
+        choices=['say', 'ea', 'soz', 'dil', 'tyt'],
         default='say',
         help='Score type to scrape (default: say)'
     )
@@ -541,7 +603,7 @@ def main():
 
     if args.all_types:
         print("Scraping all score types...")
-        for score_type in ['say', 'ea', 'soz', 'dil']:
+        for score_type in ['say', 'ea', 'soz', 'dil', 'tyt']:
             print(f"\n{'='*50}")
             print(f"Starting scrape for {score_type} score type")
             print(f"{'='*50}")
@@ -554,7 +616,7 @@ def main():
             scraper.scrape_all_pages()
 
             # Add delay between different score types
-            if score_type != 'dil':  # Don't delay after last type
+            if score_type != 'tyt':  # Don't delay after last type
                 print(f"Waiting 10 seconds before next score type...")
                 time.sleep(10)
     else:
