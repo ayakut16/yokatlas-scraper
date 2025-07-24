@@ -272,14 +272,18 @@ class YokatlasUniversityScraper:
 
         if self.score_type == "tyt":
             # For TYT, look for attributes in font tags with color="#cc0000" (lowercase)
-            font_tags = soup.find_all('font', {'color': '#cc0000'})
-            for font_tag in font_tags:
+            font_tag = soup.find('font', {'color': '#cc0000'})
+            if font_tag:
                 text = font_tag.get_text(strip=True)
-                if text.startswith('(') and text.endswith(')'):
-                    # Remove parentheses and add to attributes
-                    attribute = text[1:-1].strip()
-                    if attribute:
-                        attributes.append(attribute)
+
+                # Handle both single attribute and multiple attributes cases
+                if '(' in text and ')' in text:
+                    # Find all parenthesized content using regex
+                    matches = re.findall(r'\(([^)]+)\)', text)
+                    for match in matches:
+                        if match.strip():
+                            attributes.append(match.strip())
+
         else:
             # Find the font tag with color="#CC0000" that contains attributes
             font_tag = soup.find('font', {'color': '#CC0000'})
