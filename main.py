@@ -19,7 +19,7 @@ class YokatlasUniversityScraper:
     def __init__(self, score_type: str = "say", output_file: Optional[str] = None, headless: bool = False):
         self.score_type = score_type
         self.output_file = output_file or f"universities_data_{score_type}.json"
-        self.base_url = f"https://yokatlas.yok.gov.tr/tercih-sihirbazi-t4-tablo.php?p={score_type}"
+        self.base_url = f"https://yokatlas.yok.gov.tr/tercih-sihirbazi-t4-tablo.php?p={score_type if score_type != 'soz' else 'söz'}"
         self.headless = headless
         self.driver = None
         self.scraped_codes = set()
@@ -290,10 +290,33 @@ class YokatlasUniversityScraper:
             # Extract code from first column link (accounting for hidden control column)
             code_cell = cells[1].get_attribute('innerHTML')
             code_soup = BeautifulSoup(code_cell, 'html.parser')
-            code_link = code_soup.find('a')
-            if not code_link:
+
+            # First try to find code in direct text content (handles both normal and problem cases)
+            # Get the text content and look for the first numeric sequence that looks like a code
+            cell_text = code_soup.get_text(separator='|', strip=True)
+            text_parts = cell_text.split('|')
+
+            code = None
+            for part in text_parts:
+                part = part.strip()
+                # Look for a numeric code that's at least 8 digits
+                if part.isdigit() and len(part) >= 8:
+                    code = part
+                    break
+
+            # If we didn't find a code in text content, try anchor tags as fallback
+            if not code:
+                anchor_tags = code_soup.find_all('a')
+                for anchor in anchor_tags:
+                    anchor_text = anchor.get_text(strip=True)
+                    if anchor_text.isdigit() and len(anchor_text) >= 8:
+                        code = anchor_text
+                        break
+
+            # If still no code found, skip this row
+            if not code:
                 return None
-            code = code_link.get_text(strip=True)
+
             # Skip if already scraped
             if code in self.scraped_codes:
                 return None
